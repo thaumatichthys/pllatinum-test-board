@@ -38,7 +38,7 @@ void LMX2592::init_spi() {
     uint8_t data[3]; // 24 bits
 
     spi_init(SPI_PORT, 500000);
-    spi_set_format(SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     gpio_set_function(GPIO_SPI_MOSI, GPIO_FUNC_SPI);
     gpio_set_function(GPIO_SPI_SCK, GPIO_FUNC_SPI);
     gpio_set_function(GPIO_LMX_MUXOUT, GPIO_FUNC_SPI);
@@ -56,19 +56,34 @@ void LMX2592::init_spi() {
 
     
 
-
+    // DO NOT CHANGE START
     load_defaults_into_config();
     config_fields.RESET_1b = 1;
-    config_fields.FCAL_EN_1b = 0;
-    config_fields.MUXOUT_HDRV_1b = 1;
-    config_fields.OSC_2X_1b = 1;
     load_values_into_regfile();
     spi_write24(0, regfile[0]);
+    config_fields.RESET_1b = 0;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+    // DO NOT CHANGE END
+    config_fields.FCAL_EN_1b = 0;
+    config_fields.MUXOUT_HDRV_1b = 1;
+
+
+    config_fields.PLL_N_12b = 47;
+    
+    config_fields.PLL_R_8b = 1;
+    config_fields.PLL_R_PRE_12b = 1;
+
+    config_fields.OUTA_MUX_2b = 1; // select vco
+    config_fields.OUTA_PD_1b = 0;
+
+
+    
+    load_values_into_regfile();
 
     write_all_values();
 
     ///spi_write24(0, 0b0010001000011000); 
-    config_fields.RESET_1b = 0;
     config_fields.FCAL_EN_1b = 1;
     load_values_into_regfile();
     spi_write24(0, regfile[0]);
@@ -77,9 +92,9 @@ void LMX2592::init_spi() {
 }
 
 void LMX2592::dump_values() {
-    //gpio_put(GPIO_SPI_LMX_CS, 0);
-    //spi_write24(0, 0b0010001000010000); 
-    //gpio_put(GPIO_SPI_LMX_CS, 1);
+    bool PRINT_MODE_TICSPRO = true;
+    spi_write24(0, 0b0010001000010000); 
+
     printf("       | ");
     for (int i = 0; i < 16; i++) {
         printf("%2d  | ", 15 - i);
@@ -95,11 +110,17 @@ void LMX2592::dump_values() {
         gpio_put(GPIO_SPI_LMX_CS, 1);
         sleep_ms(1);
         uint16_t contents_merged = (uint16_t)read_contents[1] | ((uint16_t)read_contents[0] << 8); 
-        //printf("read values: R%d: 0x%x\n", addr, contents_merged);
-        printf("\nR%2d: = |  ", addr);
-        for (int i = 0; i < 16; i++) {
-            int bit = (contents_merged & (1 << (15 - i))) > 0;
-            printf("%d  |  ", bit);
+
+        if (PRINT_MODE_TICSPRO) {
+            printf("R%d 0x%02x%04x\n", addr, addr, contents_merged);
+        }
+        else {
+            //printf("read values: R%d: 0x%x\n", addr, contents_merged);
+            printf("\nR%2d: = |  ", addr);
+            for (int i = 0; i < 16; i++) {
+                int bit = (contents_merged & (1 << (15 - i))) > 0;
+                printf("%d  |  ", bit);
+            }
         }
     }
     printf("\n\n\n");

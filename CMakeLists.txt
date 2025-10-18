@@ -11,6 +11,7 @@ pico_sdk_init()
 
 add_executable(${PROJECT_NAME}
     main.cpp
+    lmx2592.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}

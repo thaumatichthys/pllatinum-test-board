@@ -40,7 +40,7 @@ int main() {
     //gpio_init(GPIO_LMX_MUXOUT);
     //gpio_set_dir(GPIO_LMX_MUXOUT, GPIO_IN);
     
-    sleep_ms(100);
+    sleep_ms(1000);
     printf("he;;p wprld\n");
     pll.init_spi();
 
@@ -49,6 +49,7 @@ int main() {
         sleep_ms(20);
         gpio_put(25, 0);
         sleep_ms(2000);
+        printf("he;;p wprld\n");
         pll.dump_values();
        // gpio_put(GPIO_RGB_R, gpio_get(GPIO_LMX_MUXOUT));
        // gpio_put(GPIO_RGB_G, gpio_get(GPIO_LMX_MUXOUT));

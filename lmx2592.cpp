@@ -17,19 +17,27 @@
 #define GPIO_LMX_EN         0
 
 void LMX2592::spi_write24(uint8_t address, uint16_t data) {
+    
     uint8_t arr[] = {
         address & 0x7F,
         (uint8_t) (data >> 8),
         (uint8_t) (data & 0xFF)
     };
+    //printf("writing: addr = %d, data = 0x%x\n", address, data);
+    sleep_us(10);
+    gpio_put(GPIO_SPI_LMX_CS, 0);
+    sleep_us(10);
     spi_write_blocking(SPI_PORT, arr, 3);
+    sleep_us(10);
+    gpio_put(GPIO_SPI_LMX_CS, 1);
+    sleep_us(10);
 }
 
 void LMX2592::init_spi() {
 
     uint8_t data[3]; // 24 bits
 
-    spi_init(SPI_PORT, 5000000);
+    spi_init(SPI_PORT, 500000);
     spi_set_format(SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_set_function(GPIO_SPI_MOSI, GPIO_FUNC_SPI);
     gpio_set_function(GPIO_SPI_SCK, GPIO_FUNC_SPI);
@@ -44,13 +52,34 @@ void LMX2592::init_spi() {
     gpio_set_dir(GPIO_LMX_EN, GPIO_OUT);
     gpio_put(GPIO_LMX_EN, 1);
 
-    sleep_ms(10);
+    sleep_ms(100);
+
+    
+
+
+    load_defaults_into_config();
+    config_fields.RESET_1b = 1;
+    config_fields.FCAL_EN_1b = 0;
+    config_fields.MUXOUT_HDRV_1b = 1;
+    config_fields.OSC_2X_1b = 1;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+
+    write_all_values();
+
+    ///spi_write24(0, 0b0010001000011000); 
+    config_fields.RESET_1b = 0;
+    config_fields.FCAL_EN_1b = 1;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+
+    //spi_write24(0, 1 << 3); 
 }
 
 void LMX2592::dump_values() {
-    gpio_put(GPIO_SPI_LMX_CS, 0);
-    spi_write24(0, 0b0010001000010000); 
-    gpio_put(GPIO_SPI_LMX_CS, 1);
+    //gpio_put(GPIO_SPI_LMX_CS, 0);
+    //spi_write24(0, 0b0010001000010000); 
+    //gpio_put(GPIO_SPI_LMX_CS, 1);
     printf("       | ");
     for (int i = 0; i < 16; i++) {
         printf("%2d  | ", 15 - i);
@@ -76,7 +105,19 @@ void LMX2592::dump_values() {
     printf("\n\n\n");
 }
 
+void LMX2592::write_all_values() {
+    for (int i = 70; i >= 0; i--) {
+        if (write_detect[i]) {
+            spi_write24(i & 0xff, regfile[i]);
+        }
+    }
+}
+
 void LMX2592::load_values_into_regfile() {
+    for (int i = 0; i < 71; i++) {
+        regfile[i] = 0;
+        write_detect[i] = false;
+    }
     // R0
     regfile[0] = 0b0000001000000000;
     regfile[0] |= ((config_fields.POWERDOWN_1b & 0x1) << 0);
@@ -336,7 +377,7 @@ void LMX2592::load_defaults_into_config() {
     config_fields.POWERDOWN_1b = 0;
     config_fields.RESET_1b = 0;
     config_fields.MUXOUT_SEL_1b = 1;
-    config_fields.FCAL_EN_1b = 1;
+    config_fields.FCAL_EN_1b = 0; // this is not default but we want to do this last.
     config_fields.ACAL_EN_1b = 1;
     config_fields.FCAL_LPFD_ADJ_2b = 0;
     config_fields.FCAL_HPFD_ADJ_2b = 0;

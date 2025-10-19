@@ -40,9 +40,10 @@ int main() {
     //gpio_init(GPIO_LMX_MUXOUT);
     //gpio_set_dir(GPIO_LMX_MUXOUT, GPIO_IN);
     
-    sleep_ms(1000);
+    sleep_ms(100);
     printf("he;;p wprld\n");
     pll.init_spi();
+    pll.set_frequency(9000'000'000);
 
     while(1) { // rekt noob timeam
         gpio_put(25, 1);

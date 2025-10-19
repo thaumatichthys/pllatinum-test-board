@@ -16,6 +16,7 @@
 #define GPIO_LMX_SYNC       7
 #define GPIO_LMX_EN         0
 
+
 void LMX2592::spi_write24(uint8_t address, uint16_t data) {
     
     uint8_t arr[] = {
@@ -32,6 +33,22 @@ void LMX2592::spi_write24(uint8_t address, uint16_t data) {
     gpio_put(GPIO_SPI_LMX_CS, 1);
     sleep_us(10);
 }
+
+void LMX2592::soft_reset() {
+    config_fields.RESET_1b = 1;
+    config_fields.FCAL_EN_1b = 0;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+    config_fields.RESET_1b = 0;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+}
+void LMX2592::do_fcal() {
+    config_fields.FCAL_EN_1b = 1;
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+}
+
 
 void LMX2592::init_spi() {
 
@@ -58,15 +75,12 @@ void LMX2592::init_spi() {
 
     // DO NOT CHANGE START
     load_defaults_into_config();
-    config_fields.RESET_1b = 1;
-    load_values_into_regfile();
-    spi_write24(0, regfile[0]);
-    config_fields.RESET_1b = 0;
-    load_values_into_regfile();
-    spi_write24(0, regfile[0]);
+    soft_reset();
     // DO NOT CHANGE END
-    config_fields.FCAL_EN_1b = 0;
     config_fields.MUXOUT_HDRV_1b = 1;
+
+    /*
+    
 
 
     config_fields.PLL_N_12b = 47;
@@ -76,19 +90,186 @@ void LMX2592::init_spi() {
 
     config_fields.OUTA_MUX_2b = 1; // select vco
     config_fields.OUTA_PD_1b = 0;
+    */
+    /*
+    config_fields.MULT_5b = 4;
+    config_fields.FCAL_HPFD_ADJ_2b = 2; // Fpfd = 150 - 200 MHz
 
 
+    config_fields.PLL_N_12b = 13;
+    config_fields.MASH_ORDER_3b = 1; // need to change to first order for small PLL N value
+
+    uint32_t num = 41666667;
+    uint32_t den = 2000000000;
+
+    config_fields.PLL_NUM_15_0__16b = (num & 0xFFFF);
+    config_fields.PLL_NUM_31_16__16b = (num >> 16) & 0xffff;
+
+    config_fields.PLL_DEN_15_0__16b = (den & 0xFFFF);
+    config_fields.PLL_DEN_31_16__16b = (den >> 16) & 0xffff;
+
+    config_fields.PFD_DLY_6b = 1; // recommended for mash order 1 and 2
     
+
+
+    config_fields.OUTA_MUX_2b = 1; // select vco
+    config_fields.OUTA_PD_1b = 0;
+    */
     load_values_into_regfile();
 
     write_all_values();
 
     ///spi_write24(0, 0b0010001000011000); 
-    config_fields.FCAL_EN_1b = 1;
-    load_values_into_regfile();
-    spi_write24(0, regfile[0]);
-
+    do_fcal();
+    
     //spi_write24(0, 1 << 3); 
+}
+
+void LMX2592::load_divider_into_config(double divider) {
+    uint16_t N_divider = (int)divider;
+
+    double frac = divider - (double) N_divider;
+    double denom_f = (double) 0xffffffff; // maximum possible divider
+    double numer_f = frac * denom_f;
+
+    config_fields.PLL_N_12b = N_divider;
+
+    config_fields.PLL_DEN_15_0__16b = (uint16_t)(((uint32_t) denom_f) & 0xffff);
+    config_fields.PLL_DEN_31_16__16b = (uint16_t)(((uint32_t) denom_f >> 16) & 0xffff);
+    
+    config_fields.PLL_NUM_15_0__16b = (uint16_t)(((uint32_t) numer_f) & 0xffff);
+    config_fields.PLL_NUM_31_16__16b = (uint16_t)(((uint32_t) numer_f >> 16) & 0xffff);
+
+    // handle MASH recommendations and stuff
+    // go for third order when possible
+    uint16_t mash_order = 3;
+    uint16_t pfd_delay = 2;
+    if (N_divider < 18) {
+        mash_order = 2;
+        pfd_delay = 2;
+    }  
+    if (N_divider < 16) {
+        mash_order = 1;
+        pfd_delay = 1;
+    }
+    // MASH order 0 is too shit so we dont use it
+    config_fields.MASH_ORDER_3b = mash_order;
+}
+
+bool LMX2592::set_frequency(double freq_hz) {
+    if (freq_hz < OUT_MIN_HZ || freq_hz > OUT_MAX_HZ) return 0; // can't do that
+
+
+    config_fields.MULT_5b = 5;
+    config_fields.PLL_R_8b = 2; // post R = 2
+    config_fields.FCAL_HPFD_ADJ_2b = 1; // Fpfd = 100 - 150 MHz
+
+    config_fields.PLL_N_PRE_1b = 0; // divide by two
+
+    double pfd_freq = 5 * REF_HZ / 2; // 120 MHz
+
+    double divider;
+
+    if (freq_hz < VCO_MIN_HZ) {
+        // must use channel divider
+
+        // first gotta find which divider to use
+        // THIS IS MODIFIED FROM THE DATASHEET!
+        const uint16_t datasheet_table_7_4[][8] = {
+            // OUT_MIN, OUT_MAX, SEG1_REG, SEG2_REG, SEG3_REG, MUX, TOTAL_DIV
+            {1775, 3550, 0, 0, 0, 1, 2},     // ÷2
+            {1184, 2200, 1, 0, 0, 1, 3},     // ÷3
+            {888,  1184, 0, 1, 0, 2, 4},     // ÷2 * ÷2
+            {592,  888,  1, 1, 0, 2, 6},     // ÷3 * ÷2
+            {444,  592,  0, 2, 0, 2, 8},     // ÷2 * ÷4
+            {296,  444,  0, 4, 0, 2, 12},    // ÷2 * ÷6
+            {222,  296,  0, 8, 0, 2, 16},    // ÷2 * ÷8
+            {148,  222,  1, 8, 0, 2, 24},    // ÷3 * ÷8
+            {111,  148,  0, 8, 1, 4, 32},    // ÷2 * ÷8 * ÷2
+            {99,   111,  1, 4, 1, 4, 36},    // ÷3 * ÷6 * ÷2
+            {74,   99,   1, 8, 1, 4, 48},    // ÷3 * ÷8 * ÷2
+            {56,   74,   0, 8, 2, 4, 64},    // ÷2 * ÷8 * ÷4
+            {37,   56,   0, 8, 4, 4, 96},    // ÷2 * ÷8 * ÷6
+            {28,   37,   0, 8, 8, 4, 128},   // ÷2 * ÷8 * ÷8
+            {20,   28,   1, 8, 8, 4, 192}    // ÷3 * ÷8 * ÷8
+        };
+        double total_division = 0;
+        for (int row = 0; row < 15; row++) {
+            double min_freq = 1'000'000.0 * (double) datasheet_table_7_4[row][0];
+            double max_freq = 1'000'000.0 * (double) datasheet_table_7_4[row][1];
+            uint16_t seg1_val = datasheet_table_7_4[row][2];
+            uint16_t seg2_val = datasheet_table_7_4[row][3];
+            uint16_t seg3_val = datasheet_table_7_4[row][4];
+
+            uint16_t mux_val = datasheet_table_7_4[row][5];
+            
+            total_division = (double) datasheet_table_7_4[row][6];
+
+            if ((min_freq <= freq_hz) && (max_freq >= freq_hz)) {
+                // this one works
+                config_fields.CHDIV_SEG1_1b = seg1_val;
+                config_fields.CHDIV_SEG2_4b = seg2_val;
+                config_fields.CHDIV_SEG3_3b = seg3_val;
+                config_fields.CHDIV_SEG_SEL_4b = mux_val;
+
+                break;
+            }
+        }
+        if (total_division < 1.0)
+            return 0; // valid range not found
+        double vco_freq = total_division * freq_hz;
+        divider = vco_freq / (2 * pfd_freq); // 2 is from the prescaler
+
+        // enable channel divider
+        config_fields.CHDIV_EN_1b = 1;
+        config_fields.CHDIV_DIST_PD_1b = 0;
+        config_fields.CHDIV_SEG1_EN_1b = 1;
+        config_fields.CHDIV_SEG2_EN_1b = 1;
+        config_fields.CHDIV_SEG3_EN_1b = 1;
+        config_fields.CHDIV_DISTA_EN_1b = 1;
+        config_fields.CHDIV_DISTB_EN_1b = 1;
+        // power down the VCO dist
+        config_fields.VCO_DISTA_PD_1b = 1;
+        config_fields.VCO_DISTB_PD_1b = 1;
+        // select CHDIV mux
+        config_fields.OUTA_MUX_2b = 0;
+        config_fields.OUTB_MUX_2b = 0;
+        
+    }
+    else {
+        if (freq_hz < VCO_MAX_HZ) {
+            // can use fundamental
+            divider = freq_hz / (2 * pfd_freq); // 2 is from the prescaler
+        }
+        else {
+            // must use doubler
+            config_fields.VCO_2X_EN_1b = 1; // enable vco doubler
+            config_fields.PLL_N_PRE_1b = 1; // with doubler, must also set PLL N prescaler to 4
+            divider = freq_hz / (4 * pfd_freq); // 4 is from prescaler
+        }
+        // disable channel divider
+        config_fields.CHDIV_EN_1b = 0;
+        config_fields.CHDIV_DIST_PD_1b = 1;
+        config_fields.CHDIV_SEG1_EN_1b = 0;
+        config_fields.CHDIV_SEG2_EN_1b = 0;
+        config_fields.CHDIV_SEG3_EN_1b = 0;
+        config_fields.CHDIV_DISTA_EN_1b = 0;
+        config_fields.CHDIV_DISTB_EN_1b = 0;
+        // power up the VCO dist
+        config_fields.VCO_DISTA_PD_1b = 0;
+        config_fields.VCO_DISTB_PD_1b = 0;
+        // select VCO mux
+        config_fields.OUTA_MUX_2b = 1;
+        config_fields.OUTB_MUX_2b = 1;
+    }
+    
+
+    load_divider_into_config(divider);
+    load_values_into_regfile();
+    write_all_values();
+    do_fcal();
+
+    return true;
 }
 
 void LMX2592::dump_values() {
@@ -259,8 +440,8 @@ void LMX2592::load_values_into_regfile() {
 
     // R36
     regfile[36] = 0b0000000000000000;
-    regfile[36] |= ((config_fields.CHDIV_SEG3_3b & 0x7) << 0);
-    regfile[36] |= ((config_fields.CHDIV_SEG_SEL_4b & 0xf) << 3);
+    regfile[36] |= ((config_fields.CHDIV_SEG3_3b & 0xf) << 0);
+    regfile[36] |= ((config_fields.CHDIV_SEG_SEL_4b & 0x7) << 4);
     regfile[36] |= ((config_fields.CHDIV_DISTA_EN_1b & 0x1) << 10);
     regfile[36] |= ((config_fields.CHDIV_DISTB_EN_1b & 0x1) << 11);
 

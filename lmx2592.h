@@ -166,7 +166,13 @@ struct lmx2592_fields {
 };
 
 class LMX2592 {
-    
+    static constexpr double VCO_MIN_HZ = 3'550'000'000.0;
+    static constexpr double VCO_MAX_HZ = 7'100'000'000.0;
+    static constexpr double OUT_MAX_HZ = 9'800'000'000.0;
+    static constexpr double OUT_MIN_HZ =    20'000'000.0;
+    static constexpr double REF_HZ = 48'000'000.0;
+
+
     uint16_t regfile[71];
     bool write_detect[71];
 public:
@@ -177,4 +183,8 @@ public:
     void init_spi();
     void dump_values();
     void write_all_values();
+    void soft_reset();
+    void do_fcal();
+    void load_divider_into_config(double divider);
+    bool set_frequency(double freq_hz);
 };

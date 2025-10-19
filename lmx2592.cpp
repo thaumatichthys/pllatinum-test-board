@@ -51,11 +51,8 @@ void LMX2592::do_fcal() {
 
 
 void LMX2592::init_spi() {
-
-    uint8_t data[3]; // 24 bits
-
     spi_init(SPI_PORT, 500000);
-    spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    //spi_set_format(SPI_PORT, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
     gpio_set_function(GPIO_SPI_MOSI, GPIO_FUNC_SPI);
     gpio_set_function(GPIO_SPI_SCK, GPIO_FUNC_SPI);
     gpio_set_function(GPIO_LMX_MUXOUT, GPIO_FUNC_SPI);
@@ -64,65 +61,18 @@ void LMX2592::init_spi() {
     gpio_set_dir(GPIO_SPI_LMX_CS, GPIO_OUT);
     gpio_put(GPIO_SPI_LMX_CS, 1);
 
-
     gpio_init(GPIO_LMX_EN);
     gpio_set_dir(GPIO_LMX_EN, GPIO_OUT);
     gpio_put(GPIO_LMX_EN, 1);
 
-    sleep_ms(100);
+    sleep_ms(10);
 
-    
-
-    // DO NOT CHANGE START
     load_defaults_into_config();
     soft_reset();
-    // DO NOT CHANGE END
     config_fields.MUXOUT_HDRV_1b = 1;
-
-    /*
-    
-
-
-    config_fields.PLL_N_12b = 47;
-    
-    config_fields.PLL_R_8b = 1;
-    config_fields.PLL_R_PRE_12b = 1;
-
-    config_fields.OUTA_MUX_2b = 1; // select vco
-    config_fields.OUTA_PD_1b = 0;
-    */
-    /*
-    config_fields.MULT_5b = 4;
-    config_fields.FCAL_HPFD_ADJ_2b = 2; // Fpfd = 150 - 200 MHz
-
-
-    config_fields.PLL_N_12b = 13;
-    config_fields.MASH_ORDER_3b = 1; // need to change to first order for small PLL N value
-
-    uint32_t num = 41666667;
-    uint32_t den = 2000000000;
-
-    config_fields.PLL_NUM_15_0__16b = (num & 0xFFFF);
-    config_fields.PLL_NUM_31_16__16b = (num >> 16) & 0xffff;
-
-    config_fields.PLL_DEN_15_0__16b = (den & 0xFFFF);
-    config_fields.PLL_DEN_31_16__16b = (den >> 16) & 0xffff;
-
-    config_fields.PFD_DLY_6b = 1; // recommended for mash order 1 and 2
-    
-
-
-    config_fields.OUTA_MUX_2b = 1; // select vco
-    config_fields.OUTA_PD_1b = 0;
-    */
     load_values_into_regfile();
-
     write_all_values();
-
-    ///spi_write24(0, 0b0010001000011000); 
     do_fcal();
-    
-    //spi_write24(0, 1 << 3); 
 }
 
 void LMX2592::load_divider_into_config(double divider) {
@@ -156,24 +106,24 @@ void LMX2592::load_divider_into_config(double divider) {
     config_fields.MASH_ORDER_3b = mash_order;
 }
 
+bool LMX2592::set_power_int(uint16_t power) {
+    if (power > 31) return false;
+    config_fields.OUTA_POW_6b = power;
+    config_fields.OUTB_POW_6b = power;
+    load_values_into_regfile();
+    write_all_values();
+    return true;
+}
+
 bool LMX2592::set_frequency(double freq_hz) {
     if (freq_hz < OUT_MIN_HZ || freq_hz > OUT_MAX_HZ) return 0; // can't do that
-
-
     config_fields.MULT_5b = 5;
     config_fields.PLL_R_8b = 2; // post R = 2
     config_fields.FCAL_HPFD_ADJ_2b = 1; // Fpfd = 100 - 150 MHz
-
     config_fields.PLL_N_PRE_1b = 0; // divide by two
-
     double pfd_freq = 5 * REF_HZ / 2; // 120 MHz
-
     double divider;
-
-    if (freq_hz < VCO_MIN_HZ) {
-        // must use channel divider
-
-        // first gotta find which divider to use
+    if (freq_hz < VCO_MIN_HZ) { // must use channel divider
         // THIS IS MODIFIED FROM THE DATASHEET!
         const uint16_t datasheet_table_7_4[][8] = {
             // OUT_MIN, OUT_MAX, SEG1_REG, SEG2_REG, SEG3_REG, MUX, TOTAL_DIV
@@ -272,8 +222,8 @@ bool LMX2592::set_frequency(double freq_hz) {
     return true;
 }
 
-void LMX2592::dump_values() {
-    bool PRINT_MODE_TICSPRO = true;
+void LMX2592::dump_values(bool hex) {
+    bool PRINT_MODE_TICSPRO = hex;
     spi_write24(0, 0b0010001000010000); 
 
     printf("       | ");
@@ -305,6 +255,35 @@ void LMX2592::dump_values() {
         }
     }
     printf("\n\n\n");
+}
+
+void LMX2592::enable_rf1(bool enabled) {
+    config_fields.OUTA_PD_1b = !enabled;
+    load_values_into_regfile();
+    spi_write24(46, regfile[46]);
+}
+void LMX2592::enable_rf2(bool enabled) {
+    config_fields.OUTB_PD_1b = !enabled;
+    load_values_into_regfile();
+    spi_write24(46, regfile[46]);
+}
+
+bool LMX2592::is_locked() {
+    config_fields.MUXOUT_SEL_1b = 0; // ensure readback mode
+    config_fields.FCAL_EN_1b = 0; // dont fcal here
+    load_values_into_regfile();
+    spi_write24(0, regfile[0]);
+
+    uint8_t cmd = 68 | (1 << 7); // register 68, and READ bit set
+    uint8_t read_contents[2];
+    gpio_put(GPIO_SPI_LMX_CS, 0);
+    spi_write_blocking(SPI_PORT, &cmd, 1);
+    spi_read_blocking(SPI_PORT, 0, read_contents, 2);
+    gpio_put(GPIO_SPI_LMX_CS, 1);
+    // we look for rb_LD_VTUNE register (bits 10:9 of R68)
+    uint16_t rb_LD_VTUNE = (read_contents[0] >> 1) % 0b11;
+
+    return rb_LD_VTUNE == 2;
 }
 
 void LMX2592::write_all_values() {

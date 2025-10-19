@@ -181,10 +181,14 @@ public:
     void load_defaults_into_config();
     void spi_write24(uint8_t address, uint16_t data);
     void init_spi();
-    void dump_values();
+    void dump_values(bool hex);
     void write_all_values();
     void soft_reset();
     void do_fcal();
     void load_divider_into_config(double divider);
     bool set_frequency(double freq_hz);
+    bool is_locked();
+    bool set_power_int(uint16_t power);
+    void enable_rf1(bool enabled);
+    void enable_rf2(bool enabled);
 };

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 include(pico_sdk_import.cmake)
 
-project(PICO_PROJECT_TEMPLATE C CXX ASM) # Change to the project name (Does not need to match or anything)
+project(LMX2592_Test_Board C CXX ASM) # Change to the project name (Does not need to match or anything)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)

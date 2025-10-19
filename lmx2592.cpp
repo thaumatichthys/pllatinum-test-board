@@ -107,7 +107,9 @@ void LMX2592::load_divider_into_config(double divider) {
 }
 
 bool LMX2592::set_power_int(uint16_t power) {
-    if (power > 31) return false;
+    if (power > 47) return false;
+    if (power > 31 && power <= 47)
+        power = 48 + (power - 32);
     config_fields.OUTA_POW_6b = power;
     config_fields.OUTB_POW_6b = power;
     load_values_into_regfile();

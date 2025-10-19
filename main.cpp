@@ -59,7 +59,7 @@ void get_inputs() {
         if (strcmp(argv[i], "-help") == 0) {
             printf("Usage:\n");    
             printf("  -f <float>    Set frequency in MHz [20.0, 9800.0]\n");
-            printf("  -p <int>      Set RF power [0, 31]\n");
+            printf("  -p <int>      Set RF power [0, 47]\n");
             printf("  -rf1 <on/off> Enable RF1\n");
             printf("  -rf2 <on/off> Enable RF2\n");
             printf("  -d <bin/hex>  Dump LMX2592 registers\n");
@@ -107,7 +107,7 @@ void get_inputs() {
                     printf("> Power set to setting %d\n", arg);
                 }
                 else {
-                    printf("> Error: power out of bounds (max 31)\n");
+                    printf("> Error: power out of bounds (max 47)\n");
                 }
             }
             else {
